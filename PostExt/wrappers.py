@@ -7,6 +7,7 @@ try:
 	from typing import List, Dict, Any
 
 	from .post_properties import Properties, Property
+	from . import utils 
 
 	Values = Dict[str, Any]
 	Visible = Dict[str, bool]
@@ -69,8 +70,16 @@ try:
 	class CamOperation():
 		def __init__(self, _fcOp):
 			self.FcOp = _fcOp
+			base = self.FcOp
 
-			if not self.isMachiningOperation():
+			#find the base operation if dressups are used
+			while hasattr(base,"Base"):
+				if not hasattr(base.Base,"Path"):
+					break
+				base = base.Base
+			self.FcBaseOp = base
+		
+			if self.isArrayOperation() or not self.isMachiningOperation():
 				return
 
 			"""
@@ -123,8 +132,12 @@ try:
 		def install_properties(self, properties : Properties):
 			op_props = properties.create_operation_properties()
 			for p in op_props:
-				p.install(self.FcOp)
+				p.install(self.FcBaseOp)
 				self.properties.add_operation_property(p)
+
+		def remove_properties(self):
+			utils.remove_property_group(self.FcOp,"PostProcessor")
+			utils.remove_property_group(self.FcBaseOp,"PostProcessor")
 
 		def getFcOp(self):
 			return self.FcOp
@@ -133,7 +146,7 @@ try:
 			if hasattr(obj,_prop):
 				return getattr(obj,_prop)
 			if not hasattr(obj,"Base"):
-				raise RuntimeError("No Safe Height")
+				raise RuntimeError(_prop)
 			return self._get_property_from_obj(getattr(obj,"Base",None),_prop)
 
 		def _get_toolcontroller(self) -> IToolController:
@@ -184,15 +197,15 @@ try:
 			coolantMode = "None"
 			if self.properties.coolantOverride.value:
 				return self.properties.coolant.value
-			if hasattr(obj, "CoolantMode") or hasattr(obj, "Base") and hasattr(obj.Base, "CoolantMode"):
-				if hasattr(obj, "CoolantMode"):
-					coolantMode = obj.CoolantMode
-				else:
-					coolantMode = obj.Base.CoolantMode
+
+			coolantMode = self.FcBaseOp.CoolantMode
 			return coolantMode
 
 		def isMachiningOperation(self):
 			return self.FcOp.Path.Length > 0
+
+		def isArrayOperation(self):
+			return hasattr(self.FcOp,"Copies")
 
 		def isToolChangeOperation(self) -> bool:
 			"""
@@ -208,24 +221,45 @@ try:
 			return ToolWrapper(self.FcOp.Tool,self.FcOp.ToolNumber,self.FcOp.Label)
 
 		def getLabel(self):
-			return self.FcOp.Label
+			return self.label()
 
 		def getCommands(self):
 			return iter(PathUtils.getPathWithPlacement(self.FcOp).Commands)
 
+		def cmd_cnt(self) -> int:
+			return sum(1 for _ in self.getCommands())
+
 		def label(self):
 			return self.FcOp.Label
+
+		def name(self):
+			return self.FcOp.Name
 
 		def __str__(self):
 			return f"{self.FcOp.Label}"
 
-		"""
-		def getOpLabel(self, obj):
-			if hasattr(obj,"Base"):
-				return getattr(obj.Base, "Label", obj.Label)
-			return obj.Label
-		"""
 
+	class ArrayCamOperation(CamOperation):
+		def __init__(self,_baseOp, _arrayOp : CamOperation,_instNum : int):
+			super().__init__(_baseOp)
+			self.FarrayOp = _arrayOp
+			self.Fcmds = []
+			self.FinstNum = _instNum
+
+		def addCmd(self,_cmd):
+			self.Fcmds.append(_cmd)
+
+		def getCommands(self):
+			return self.Fcmds
+
+		def label(self):
+			return f"{self.FarrayOp.label()}[{self.FinstNum}] {super().label()}"
+
+		def name(self):
+			return f"{self.FarrayOp.Label}"
+
+		def __str__(self):
+			return self.label()
 
 	class CamOperations:
 		def __init__(self):
@@ -240,6 +274,12 @@ try:
 				if c.isToolChangeOperation():
 					tools.append(c.getToolWrapper())
 			return tools
+
+		def find_by_fc_ref(self, fc_ref) -> CamOperation:
+			for o in self.Foperations:
+				if o.FcOp == fc_ref:
+					return o
+			return None
 		
 		def getMachiningOperations(self) -> List[CamOperation]:
 			mo : List[CamOperation] = []

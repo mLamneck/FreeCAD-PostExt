@@ -25,7 +25,7 @@ try:
 	from .post_properties import Property, Properties, PropertyDescr
 	from .path_geometry import calc_circlular_sweep, calc_radius, linearize_circular, Coordinate
 	from .output_formatting import OutputParams, OutputVariable, Outstream, Warning, Warnings, Resettable, CoolantManager, CoolantManager, Coolant
-	from .wrappers import ToolList, CamOperation, CamOperations, IPostProcessor, Values, Visible
+	from .wrappers import ToolList, CamOperation, CamOperations, ArrayCamOperation, IPostProcessor, Values, Visible
 	from .debug import objToList
 
 	#FreeCAD switched to Qt6 in later releases
@@ -257,17 +257,15 @@ try:
 
 			# if split output is selected we get multiple sections that have to be
 			# individually processed. Here we iterate over all postables first to attach 
-			# all properties to the jobs and
+			# all properties to the jobs
 			nPostRuns = 0
-			operations = CamOperations()
 			for idx, section in enumerate(postables):
 				nPostRuns += 1
 				partname, sublist = section
-				for op in sublist:
-					self._build_operations_wrapper(operations,op)
-			for op in operations:
-				if op.isMachiningOperation():
-					op.install_properties(self._properties)
+				operations = self._build_operations_wrappers_from_objects_list(sublist)
+				for op in operations:
+					if op.isMachiningOperation():
+						op.install_properties(self._properties)
 
 			if not self._open_settings_dialog(self._properties,operations):
 				return [("",None)]
@@ -421,18 +419,62 @@ try:
 			# Skip inactive operations
 			if PathUtil.opProperty(obj, "Active") is False:
 				return
+
 			camOp = CamOperation(obj)
 			wrapperList.append(camOp)
 
-		def _build_operations_wrappers(self) -> CamOperations:
+		def _build_operations_wrappers_from_objects_list(self, objects_list) -> CamOperations:
 			#iterate over "operations"
 			#an operation can be a Fixture, a Tool change or a path
 			wrappers = CamOperations()
 
-			for obj in self.objects_list:
+			for obj in objects_list:
 				self._build_operations_wrapper(wrappers,obj)
 
-			return wrappers
+			#flatten array operations and create a final list with operations
+			finalWrappers = CamOperations()
+			for op in wrappers:
+				if not op.isArrayOperation():
+					finalWrappers.append(op)
+					continue
+
+				array_jobs_list = getattr(op.FcOp,"Base",None)
+				assert isinstance(array_jobs_list,list), "Base of array is not a list"
+
+				cam_ops : list[CamOperation] = []
+				for j in array_jobs_list:
+					base_op = wrappers.find_by_fc_ref(j)
+					assert base_op, f"operation \"{getattr(j,'Label','no label')}\" from arrays \"{op.label()}\" base selection not found. Check array selection and restrict to outer dressup!"
+					cam_ops.append(base_op)
+
+				array_inst_cnt = 0
+				op_index = 0
+				curr_base_op = cam_ops[0]
+				cmd_cnt = 0
+				curr_op = ArrayCamOperation(curr_base_op.FcOp,op,array_inst_cnt)
+				for c in op.getCommands():
+					cmd_cnt += 1
+
+					#one operation has been completed
+					if cmd_cnt >= curr_base_op.cmd_cnt():
+						finalWrappers.append(curr_op)
+						cmd_cnt = 0
+						op_index += 1
+
+						# all operations within the array has been completed
+						if op_index >= len(cam_ops):
+							op_index = 0
+							array_inst_cnt += 1
+
+						curr_base_op = cam_ops[op_index]
+						curr_op = ArrayCamOperation(curr_base_op.FcOp,op,array_inst_cnt)
+
+					curr_op.addCmd(c)
+				assert cmd_cnt==0 and op_index==0, "number of cmds in array doesn't match. Check array selection!"
+			return finalWrappers
+
+		def _build_operations_wrappers(self) -> CamOperations:
+			return self._build_operations_wrappers_from_objects_list(self.objects_list)
 
 		def get_reorder_pos_cmt(self,cmd_stack : List[PathCmd]):
 			l = ""
@@ -734,9 +776,15 @@ try:
 				self.writeBlock(indent,"-> -------------" + label if label else obj.Label)
 				self.writeBlocks(objToList(obj,indent+"  "))
 				if hasattr(obj, "Base"):
-					self.writeBlock(indent,"  ----------------------- Base")
-					#self.writeBlocks(objToList(obj.Base))
-					createDebugOutputForObj(obj.Base,f"Base({obj.Label})",f"{indent}  ")
+					base = getattr(obj,"Base")
+					if isinstance(base,list):
+						self.writeBlock("isLIst")
+						for o in base:
+							createDebugOutputForObj(o,f"Base({obj.Label}) = {getattr(o,'Label','no label')}",f"{indent}  ")	
+					else:
+						self.writeBlock(indent,"  ----------------------- Base",getattr(base,"Label","no label"))
+						#self.writeBlocks(objToList(obj.Base))
+						createDebugOutputForObj(base,f"Base({obj.Label}) = {getattr(base,'Label','no label')}",f"{indent}  ")
 					self.writeBlock(indent,"----------------------- ")
 				else:
 					self.writeBlock(indent,"  no base")
@@ -750,13 +798,14 @@ try:
 
 				if label:
 					return
-				if 1 == 2:
+				if 1 == 1:
 					for c in PathUtils.getPathWithPlacement(obj).Commands:
 						#self.writeBlock("-> cmd -------------")
 						if c.Name.startswith("("):  # command is a comment
 							self.writeBlock(indent,f"  COMMENT '{c.Name}'------------")
 						else:
 							self.writeBlock(indent,f"  CMD '{c.Name}'------------")
+						#self.writeBlock(objToList(c))
 
 				self.writeBlock(indent,"<- -------------" + obj.Label)
 

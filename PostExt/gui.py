@@ -358,7 +358,8 @@ try:
 
 		def _remove_properties_from_operations(self):
 				for op in self._operations.getMachiningOperations():
-					utils.remove_property_group(op.getFcOp(),"PostProcessor")
+					op.remove_properties()
+					#utils.remove_property_group(op.getFcOp(),"PostProcessor")
 
 		def accept(self):
 				try:
