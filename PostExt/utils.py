@@ -7,6 +7,7 @@ try:
 	from typing import Any, List
 	import subprocess
 	import sys
+	import os
 
 	def open_with_default_app(path : str):
 		if sys.platform.startswith("win"):

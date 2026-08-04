@@ -804,7 +804,7 @@ try:
 						if c.Name.startswith("("):  # command is a comment
 							self.writeBlock(indent,f"  COMMENT '{c.Name}'------------")
 						else:
-							self.writeBlock(indent,f"  CMD '{c.Name}'------------")
+							self.writeBlock(indent,f"  CMD '{c.Name}'------------",c.Parameters)
 						#self.writeBlock(objToList(c))
 
 				self.writeBlock(indent,"<- -------------" + obj.Label)
@@ -898,6 +898,7 @@ try:
 								self.invokeOnRapid(x,y,z)
 							elif cmd in ["G1"]:
 								self.invokeOnLinear(x,y,z)
+								#self.invokeOnLinear(x,y,z,c.Parameters.get("F",None))
 							elif cmd in ["G2","G3"]:
 								self._check_enable_coolant()
 								clockwise = cmd=="G2"
