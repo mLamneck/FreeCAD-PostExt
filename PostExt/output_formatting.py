@@ -64,8 +64,8 @@ try:
 
 		def format(self, value):
 			if value is None:
-				if self.force:
-					raise Exception(f"Toutputter: force=true but no value given for {self.formatter.prefix}")
+				#if self.force:
+				#	raise Exception(f"Toutputter: force=true but no value given for {self.formatter.prefix}")
 				return ""
 			if self.lastValue is None:
 				return self._output(value)
@@ -181,24 +181,25 @@ try:
 			return "\n".join(ctx.Lines)
 
 	class Outstream(Codeblock):
+		properties = Properties(
+			writeSeqNumbers = Property(
+				title = "Write Sequence Numbers",
+				value = True,
+				group = "Format"
+			),
+			sequenceStart = Property(
+				title = "Sequence Start",
+				value = 10,
+				group = "Format"
+			),
+			sequenceInc = Property(
+				title = "Sequence Increment",
+				value = 5,
+				group = "Format"
+			),
+		)
+
 		def __init__(self, cmt_format : str):
-			self.properties = Properties(
-				writeSeqNumbers = Property(
-					title = "Write Sequence Numbers",
-					value = True,
-					group = "Format"
-				),
-				sequenceStart = Property(
-					title = "Sequence Start",
-					value = 10,
-					group = "Format"
-				),
-				sequenceInc = Property(
-					title = "Sequence Increment",
-					value = 5,
-					group = "Format"
-				),
-			)
 			super().__init__(cmt_format)
 
 		def toString(self):
